@@ -2,10 +2,10 @@ import genomicsqlite
 import os
 	
 class genes_db:
-	def __init__(self, dbpath, on_disk = False):
+	def __init__(self, dbpath, in_memory = False):
 		self.dbpath = dbpath
 		self.gsq_conn = None
-		self.on_disk = on_disk
+		self.in_mem = in_memory
 		
 		self.genome_index = None
 		self.reverse_genome_index = None
@@ -13,6 +13,7 @@ class genes_db:
 		self.reverse_contig_index = None
 		self.gene_index = None
 		self.reverse_gene_index = None
+		self.gene_prediction_record = None
 		
 		self.current_genome_index = 0
 		self.current_contig_index = 0
@@ -20,61 +21,48 @@ class genes_db:
 		
 	def open(self):
 		if self.gsq_conn is None:
-			if self.on_disk:
-				self.gsq_conn = genomicsqlite.connect(self.dbpath)
-			else:
+			if self.in_mem:
 				self.gsq_conn = genomicsqlite.connect(":memory:")
+			else:
+				self.gsq_conn = genomicsqlite.connect(self.dbpath)
 		
 	def write_changes(self, path = None):
-		if self.on_disk:
-			self.gsq_conn.commit()
-		else:
+		#Path exists as an option here for use as part of a python module
+		if self.in_mem:	
 			if path is None:
-				if os.path.exists(self.dbpath):
-					print("Writing changes to disk...")
-					genome_md = self.gsq_conn.execute("SELECT * FROM genome_metadata").fetchall()
-					contig_md = self.gsq_conn.execute("SELECT * FROM contig_metadata").fetchall()
-					gene_md = self.gsq_conn.execute("SELECT * FROM gene_metadata").fetchall()
-					seqs = self.gsq_conn.execute("SELECT * FROM genome_sequences").fetchall()
-					
-					dest = genes_db(self.dbpath, on_disk = True)
-					dest.open()
-					insert_status = dest.insert(genome_md, seqs, contig_md, gene_md)
-					dest.gsq_conn.commit()
-					dest.close()
-				else:
-					self.gsq_conn.commit()
-					print("Writing new database to disk...")
-					dest = genomicsqlite.connect(self.dbpath)
-					self.gsq_conn.backup(dest)
-					dest.close()
+				usepath = self.dbpath
 			else:
-				if os.path.exists(path):
-					print("Writing changes to disk...")
-					genome_md = self.gsq_conn.execute("SELECT * FROM genome_metadata").fetchall()
-					contig_md = self.gsq_conn.execute("SELECT * FROM contig_metadata").fetchall()
-					gene_md = self.gsq_conn.execute("SELECT * FROM gene_metadata").fetchall()
-					seqs = self.gsq_conn.execute("SELECT * FROM genome_sequences").fetchall()
-					
-					dest = genes_db(path, on_disk = True)
-					dest.open()
-					insert_status = dest.insert(genome_md, seqs, contig_md, gene_md)
-					dest.dest.gsq_conn.commit()
-					dest.close()
-				else:
-					self.gsq_conn.commit()
-					print("Writing new database to disk...")
-					dest = genomicsqlite.connect(path)
-					self.gsq_conn.backup(dest)
-					dest.close()
+				usepath = path
+			
+			if os.path.exists(usepath):
+				print("Writing changes to existing database...")
+				genome_md = self.gsq_conn.execute("SELECT * FROM genome_metadata").fetchall()
+				contig_md = self.gsq_conn.execute("SELECT * FROM contig_metadata").fetchall()
+				gene_md = self.gsq_conn.execute("SELECT * FROM gene_metadata").fetchall()
+				seqs = self.gsq_conn.execute("SELECT * FROM genome_sequences").fetchall()
+				dest = genes_db(usepath, in_memory = False)
+				dest.open()
+				insert_status = dest.insert(genome_md, seqs, contig_md, gene_md, preds)
+				dest.gsq_conn.commit()
+				dest.gsq_conn.execute("VACUUM")
+				dest.gsq_conn.commit()
+				dest.close()
+			else:
+				print("Writing new database...")
+				self.gsq_conn.commit()				
+				dest = genomicsqlite.connect(usepath)
+				self.gsq_conn.backup(dest)
+				dest.close()
+		else:
+			print("Cleaning up additions...")
+			self.gsq_conn.commit()
+			self.gsq_conn.execute("VACUUM")
+			self.gsq_conn.commit()
 			
 	def close(self):
 		if self.gsq_conn is not None:
 			self.gsq_conn.close()
-			
-
-				
-			
+					
 	def give_current_indices(self):
 		return self.genome_index, self.contig_index, self.gene_index, self.current_genome_index, self.current_contig_index, self.current_gene_index
 		
@@ -105,6 +93,7 @@ class genes_db:
 						"genome_length INTEGER",
 						"num_contigs INTEGER",
 						"n50 INTEGER",
+						"has_predicted_genes BOOLEAN",
 						"num_genes INTEGER",
 						"translation_table INTEGER",
 						"coding_bases INTEGER",
@@ -179,17 +168,32 @@ class genes_db:
 			self.reverse_contig_index = {}
 			self.gene_index = {}
 			self.reverse_gene_index = {}
-		
-			if self.on_disk:
+			self.gene_prediction_record = {}
+			
+			if self.in_mem:
+				#If the database is in memory and an on-disk database already exists, briefly connect and load the on-disk metadata and use it to set the in-memory db metadata
+				if os.path.exists(self.dbpath):
+					#Load an already-existing database's metadata so that genomes can be added instead of overwriting without loading the db's sequences
+					existing = genes_db(self.dbpath, on_disk = True)
+					existing.open()
+					existing.get_metadata()
+					self.genome_index, self.contig_index, self.gene_index, self.current_genome_index, self.current_contig_index, self.current_gene_index = existing.give_current_indices()
+					existing.close()
+					existing = None			
+
+			#Database is a disk connection	
+			else:
 				#Load the db's metadata
-				genome_meta = self.gsq_conn.execute("SELECT genome_name, genome_id FROM genome_metadata").fetchall()
+				#genome_meta = self.gsq_conn.execute("SELECT genome_name, genome_id, has_predicted_genes FROM genome_metadata").fetchall()
+				genome_meta = self.gsq_conn.execute("SELECT source_file, genome_id, has_predicted_genes FROM genome_metadata").fetchall()
 				contig_meta = self.gsq_conn.execute("SELECT contig_name, contig_id FROM contig_metadata").fetchall()
 				gene_meta = self.gsq_conn.execute("SELECT gene_name, gene_id FROM gene_metadata").fetchall()
 				
 				for row in genome_meta:
-					genome, genome_id = row[0], row[1]
+					genome, genome_id, has_preds = row[0], row[1], row[2]
 					self.genome_index[genome] = genome_id
 					self.reverse_genome_index[genome_id] = genome
+					self.gene_prediction_record[genome_id] = has_preds
 					
 				if len(self.genome_index) > 0:
 					self.current_genome_index = max(self.genome_index.values())+1
@@ -209,23 +213,31 @@ class genes_db:
 					
 				if len(self.gene_index) > 0:
 					self.current_gene_index = max(self.gene_index.values())+1
-			else:
-				#If the database is in memory and an on-disk database already exists, briefly connect and load the on-disk metadata and use it to set the in-memory db metadata
-				if os.path.exists(self.dbpath):
-					#Load an already-existing database's metadata so that genomes can be added instead of overwriting without loading the db's sequences
-					existing = genes_db(self.dbpath, on_disk = True)
-					existing.open()
-					existing.get_metadata()
-					self.genome_index, self.contig_index, self.gene_index, self.current_genome_index, self.current_contig_index, self.current_gene_index = existing.give_current_indices()
-					existing.close()
-					existing = None
 				
 	#Set/update indices and insert
-	def insert(self, genome_insert, sequence_insert, contig_insert, gene_insert):
-		self.gsq_conn.executemany('INSERT OR IGNORE INTO genome_metadata VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', genome_insert)
-		self.gsq_conn.executemany('INSERT OR IGNORE INTO genome_sequences VALUES (?, ?, ?, ?)', sequence_insert)
-		self.gsq_conn.executemany('INSERT OR IGNORE INTO contig_metadata VALUES (?, ?, ?, ?, ?, ?, ?, ?)', contig_insert)
-		self.gsq_conn.executemany('INSERT OR IGNORE INTO gene_metadata VALUES (?, ?, ?, ?, ?, ?, ?, ?)', gene_insert)
+	def insert(self, genome_insert, sequence_insert, contig_insert, gene_insert = None, drop_these_genomes = None):
+		#If a genome is being added to a database for a second time, first delete its records everywhere
+		if drop_these_genomes is not None:
+			if genome_insert is not None:
+				self.gsq_conn.executemany('DELETE FROM genome_metadata WHERE genome_id = ?', drop_these_genomes)
+			if sequence_insert is not None:
+				self.gsq_conn.executemany('DELETE FROM genome_sequences WHERE genome_id = ?', drop_these_genomes)
+			if contig_insert is not None:
+				self.gsq_conn.executemany('DELETE FROM contig_metadata WHERE genome_id = ?', drop_these_genomes)
+			if gene_insert is not None:
+				self.gsq_conn.executemany('DELETE FROM gene_metadata WHERE genome_id = ?', drop_these_genomes)
+			
+		if genome_insert is not None:
+			self.gsq_conn.executemany('INSERT INTO genome_metadata VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', genome_insert)
+		
+		if sequence_insert is not None:
+			self.gsq_conn.executemany('INSERT INTO genome_sequences VALUES (?, ?, ?, ?)', sequence_insert)
+		
+		if contig_insert is not None:
+			self.gsq_conn.executemany('INSERT INTO contig_metadata VALUES (?, ?, ?, ?, ?, ?, ?, ?)', contig_insert)
+		
+		if gene_insert is not None:
+			self.gsq_conn.executemany('INSERT INTO gene_metadata VALUES (?, ?, ?, ?, ?, ?, ?, ?)', gene_insert)
 		
 		
 		

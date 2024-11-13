@@ -23,6 +23,7 @@ class genome_loader:
 		descriptions = {}
 		noncalls_replaced_with_A_indices = {}
 		genome_length = 0
+		contig_lengths = {}
 		
 		reader = agnostic_reader(self.fp)
 		contents = reader.read()
@@ -64,6 +65,8 @@ class genome_loader:
 			sequence_order.append(seqid)
 			sequences[seqid] = seq
 			descriptions[seqid] = description
-			genome_length += len(seq)
+			cl = len(seq)
+			genome_length += cl
+			contig_lengths[seqid] = cl
 			
-		return genome_length, sequence_order, sequences, descriptions, noncalls_replaced_with_A_indices
+		return genome_length, sequence_order, sequences, contig_lengths, descriptions, noncalls_replaced_with_A_indices

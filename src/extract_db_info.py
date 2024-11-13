@@ -61,9 +61,6 @@ class db_extractor:
 		if self.gsq_conn is not None:
 			self.gsq_conn.close()
 	
-	def ready_converter(self):
-		self.pyhmmer_converter = None
-	
 	def get_metadata(self):
 		if self.gsq_conn is not None:
 			self.genome_index = {}
@@ -132,10 +129,16 @@ class db_extractor:
 				genome_length = row[3]
 				num_contigs = row[4]
 				n50 = row[5]
-				num_genes_in_genome = row[6]
-				translation_table = row[7]
-				coding_bases_in_genome = row[8]
-				coding_base_fraction = row[9]
+				has_predicted_genes = row[6]
+				num_genes_in_genome = row[7]
+				translation_table = row[8]
+				coding_bases_in_genome = row[9]
+				coding_base_fraction = row[10]
+				
+				if has_predicted_genes == 0:
+					has_predicted_genes = False
+				else:
+					has_predicted_genes = True
 				
 				
 				self.db_meta['genomes'][genome_name] = {
@@ -144,6 +147,7 @@ class db_extractor:
 											'genome_length': genome_length,
 											'number_of_contigs': num_contigs,
 											'n50': n50,
+											'genes_were_predicted_for_this_genome':has_predicted_genes,
 											'number_of_genes_in_genome': num_genes_in_genome,
 											'translation_table_for_gene_prediction': translation_table,
 											'coding_base_count_in_genome': coding_bases_in_genome,
@@ -174,8 +178,9 @@ class db_extractor:
 																			'number_of_genes_in_contig':num_genes_in_contig, 
 																			'coding_base_count_in_contig':coding_bases_in_contig, 
 																			'fraction_of_coding_bases_in_contig':coding_fraction_in_contig, 
-																			'genes':{} 
+																			'genes':{}
 																			}
+			
 			
 			#10 1401 2029527003.a:APTF_contig21503_43 26051 0 40330 42186 2029527003.a:APTF_contig21503_43 # partial=00 # start_type=ATG # rbs_motif=TAA # rbs_spacer=8bp # gc_cont=0.415 # conf=99.99 # score=215.30 # cscore=209.45 # sscore=5.84 # rscore=2.04 # uscore=-0.20 # tscore=4.00													
 			for row in genes:
@@ -233,14 +238,15 @@ class db_extractor:
 	
 	#Function for handling the zipping of text if needed and the opening/writing to a file.
 	def write_to_file(self, file, text):
-		if self.compress:
-			text = text.encode(encoding = "ascii")
-			text = gzip.compress(text)
-			with open(file+".gz", "wb") as outwriter:
-				outwriter.write(text)
-		else:
-			with open(file, "w") as outwriter:
-				outwriter.write(text)
+		if len(text) > 0:
+			if self.compress:
+				text = text.encode(encoding = "ascii")
+				text = gzip.compress(text)
+				with open(file+".gz", "wb") as outwriter:
+					outwriter.write(text)
+			else:
+				with open(file, "w") as outwriter:
+					outwriter.write(text)
 	
 	#Write all of the metadata in a friendly json
 	def write_json(self):
@@ -250,7 +256,7 @@ class db_extractor:
 	
 	#Three metadata files for genomes, contigs, genes. Written with human readability in mind.
 	def write_text_triplet(self):
-		genome_header = ['source_file', 'genome_name', 'genome_length', 'num_contigs', 'n50', 'num_genes', 'trans_table', 'coding_bases', 'coding_fraction']
+		genome_header = ['source_file', 'genome_name', 'genome_length', 'num_contigs', 'n50', "genes_were_predicted_for_this_genome", 'num_genes', 'trans_table', 'coding_bases', 'coding_fraction']
 		contig_header = ['genome_name', 'contig_name', 'contig_description', 'contig_length', 'num_genes', 'coding_bases', 'coding_fraction']
 		gene_header = ['genome_name', 'contig_name', 'gene_name', 'gene_strand', 'gene_start', 'gene_end', 'annotation']
 		
@@ -264,22 +270,61 @@ class db_extractor:
 			glen = self.db_meta['genomes'][genome]['genome_length']
 			nctg = self.db_meta['genomes'][genome]['number_of_contigs']
 			n50 = self.db_meta['genomes'][genome]['n50']
+			
+			has_genes = self.db_meta['genomes'][genome]['genes_were_predicted_for_this_genome']
+			
 			ngenes = self.db_meta['genomes'][genome]['number_of_genes_in_genome']
 			tt = self.db_meta['genomes'][genome]['translation_table_for_gene_prediction']
 			cbg = self.db_meta['genomes'][genome]['coding_base_count_in_genome']
 			cfg = self.db_meta['genomes'][genome]['fraction_of_coding_bases_in_genome']
 			
-			next_genome_info = [src, genome, str(glen), str(nctg), str(n50), str(ngenes), str(tt), str(cbg), str(round(cfg, 6))]
+			if ngenes is not None:
+				ngenes = str(ngenes)
+			else:
+				ngenes = "NA"
+			
+			if tt is not None:
+				tt = str(tt)
+			else:
+				tt = "NA"
+				
+			if cbg is not None:
+				cbg = str(cbg)
+			else:
+				cbg = "NA"
+			
+			if cfg is not None:
+				cfg = str(round(cfg, 6))
+			else:
+				cfg = "NA"
+		
+			
+			next_genome_info = [src, genome, str(glen), str(nctg), str(n50), str(has_genes), ngenes, tt, cbg, cfg]
 			genome_output.append(next_genome_info)
 			
 			for contig in self.db_meta['genomes'][genome]['contigs']:		
 				desc = self.db_meta['genomes'][genome]['contigs'][contig]['contig_description']			
 				ctl = self.db_meta['genomes'][genome]['contigs'][contig]['contig_length']
+				
 				ngenes_ct = self.db_meta['genomes'][genome]['contigs'][contig]['number_of_genes_in_contig']
 				cbct = self.db_meta['genomes'][genome]['contigs'][contig]['coding_base_count_in_contig']
 				cfct = self.db_meta['genomes'][genome]['contigs'][contig]['fraction_of_coding_bases_in_contig']
 				
-				next_contig_info = [genome, contig, desc, str(ctl), str(ngenes_ct), str(cbct), str(round(cfct, 6))]
+				if ngenes_ct is not None:
+					ngenes_ct = str(ngenes_ct)
+				else:
+					ngenes_ct = "NA"
+				if cbct is not None:
+					cbct = str(cbct)
+				else:
+					cbct = "NA"
+					
+				if cfct is not None:
+					cfct = str(round(cfct, 6))
+				else:
+					cfct = "NA"
+				
+				next_contig_info = [genome, contig, desc, str(ctl), ngenes_ct, cbct, cfct]
 				contig_output.append(next_contig_info)
 				
 				for gene in self.db_meta['genomes'][genome]['contigs'][contig]['genes']:				
@@ -290,23 +335,28 @@ class db_extractor:
 			
 					next_gene_info = [genome, contig, gene, strand, str(st), str(nd), annot]
 					gene_output.append(next_gene_info)
-			
-		genome_output = ['\t'.join(l) for l in genome_output]
-		contig_output = ['\t'.join(l) for l in contig_output]
-		gene_output = ['\t'.join(l) for l in gene_output]
 		
-		genome_output = '\n'.join(genome_output) + "\n"
-		contig_output = '\n'.join(contig_output) + "\n"
-		gene_output = '\n'.join(gene_output) + "\n"
+		if len(genome_output) > 1:
+			genome_output = ['\t'.join(l) for l in genome_output]
+			genome_output = '\n'.join(genome_output) + "\n"
+			self.write_to_file(os.path.normpath(self.metadata_prefix+"/genome_tsv.txt"), genome_output)
 		
-		self.write_to_file(os.path.normpath(self.metadata_prefix+"/genome_tsv.txt"), genome_output)
-		self.write_to_file(os.path.normpath(self.metadata_prefix+"/contig_tsv.txt"), contig_output)
-		self.write_to_file(os.path.normpath(self.metadata_prefix+"/gene_tsv.txt"), gene_output)
+		if len(contig_output) > 1:
+			contig_output = ['\t'.join(l) for l in contig_output]
+			contig_output = '\n'.join(contig_output) + "\n"
+			self.write_to_file(os.path.normpath(self.metadata_prefix+"/contig_tsv.txt"), contig_output)
+		
+		if len(gene_output) > 1:	
+			gene_output = ['\t'.join(l) for l in gene_output]
+			gene_output = '\n'.join(gene_output) + "\n"
+			self.write_to_file(os.path.normpath(self.metadata_prefix+"/gene_tsv.txt"), gene_output)
+
+		
 
 	#Highly redundant flat file containing all of the metadata, but with row-wise replication of genome and contig data per gene.
 	def write_merged_text(self):
-		merged_header = ['source_file', 'genome_name', 'genome_length', 'num_contigs', 'n50', 'num_genes_in_genome', 'trans_table', 'coding_bases_in_genome', \
-		'coding_fraction_in_genome', 'contig_name', 'contig_description', 'contig_length', 'num_genes_in_contig', 'coding_bases_in_contig', 'coding_fraction_in_contig' \
+		merged_header = ['source_file', 'genome_name', 'genome_length', 'num_contigs', 'n50', "genes_were_predicted_for_this_genome", 'num_genes_in_genome', 'trans_table', 'coding_bases_in_genome', \
+		'coding_fraction_in_genome', 'contig_name', 'contig_description', 'contig_length', 'num_genes_in_contig', 'coding_bases_in_contig', 'coding_fraction_in_contig', \
 		'gene_name', 'gene_strand', 'gene_start', 'gene_end', 'annotation']
 		
 		merged_output = [merged_header]
@@ -317,28 +367,80 @@ class db_extractor:
 			glen = self.db_meta['genomes'][genome]['genome_length']
 			nctg = self.db_meta['genomes'][genome]['number_of_contigs']
 			n50 = self.db_meta['genomes'][genome]['n50']
+			
+			has_genes = self.db_meta['genomes'][genome]['genes_were_predicted_for_this_genome']
+			
 			ngenes = self.db_meta['genomes'][genome]['number_of_genes_in_genome']
 			tt = self.db_meta['genomes'][genome]['translation_table_for_gene_prediction']
 			cbg = self.db_meta['genomes'][genome]['coding_base_count_in_genome']
 			cfg = self.db_meta['genomes'][genome]['fraction_of_coding_bases_in_genome']
+			
+			
+			if ngenes is not None:
+				ngenes = str(ngenes)
+			else:
+				ngenes = "NA"
+			
+			if tt is not None:
+				tt = str(tt)
+			else:
+				tt = "NA"
+				
+			if cbg is not None:
+				cbg = str(cbg)
+			else:
+				cbg = "NA"
+			
+			if cfg is not None:
+				cfg = str(round(cfg, 6))
+			else:
+				cfg = "NA"
 						
 			for contig in self.db_meta['genomes'][genome]['contigs']:		
 				desc = self.db_meta['genomes'][genome]['contigs'][contig]['contig_description']			
 				ctl = self.db_meta['genomes'][genome]['contigs'][contig]['contig_length']
+				
 				ngenes_ct = self.db_meta['genomes'][genome]['contigs'][contig]['number_of_genes_in_contig']
 				cbct = self.db_meta['genomes'][genome]['contigs'][contig]['coding_base_count_in_contig']
 				cfct = self.db_meta['genomes'][genome]['contigs'][contig]['fraction_of_coding_bases_in_contig']
 				
-				for gene in self.db_meta['genomes'][genome]['contigs'][contig]['genes']:				
-					strand = self.db_meta['genomes'][genome]['contigs'][contig]['genes'][gene]['strand']
-					st = self.db_meta['genomes'][genome]['contigs'][contig]['genes'][gene]['one_indexed_gene_start']
-					nd = self.db_meta['genomes'][genome]['contigs'][contig]['genes'][gene]['one_indexed_gene_end']
-					annot = self.db_meta['genomes'][genome]['contigs'][contig]['genes'][gene]['annotation']
-			
-					next_merged_info = [src, genome, str(glen), str(nctg), str(n50), str(ngenes), str(tt), str(cbg), \
-					str(round(cfg, 6)), contig, desc, str(ctl), str(ngenes_ct), str(cbct), str(round(cfct, 6)),\
-					gene, strand, str(st), str(nd), annot]
+				if ngenes_ct is not None:
+					ngenes_ct = str(ngenes_ct)
+				else:
+					ngenes_ct = "NA"
+				if cbct is not None:
+					cbct = str(cbct)
+				else:
+					cbct = "NA"
 					
+				if cfct is not None:
+					cfct = str(round(cfct, 6))
+				else:
+					cfct = "NA"
+				
+				if has_genes:
+					if len(self.db_meta['genomes'][genome]['contigs'][contig]['genes']) > 0:
+						for gene in self.db_meta['genomes'][genome]['contigs'][contig]['genes']:				
+							strand = self.db_meta['genomes'][genome]['contigs'][contig]['genes'][gene]['strand']
+							st = self.db_meta['genomes'][genome]['contigs'][contig]['genes'][gene]['one_indexed_gene_start']
+							nd = self.db_meta['genomes'][genome]['contigs'][contig]['genes'][gene]['one_indexed_gene_end']
+							annot = self.db_meta['genomes'][genome]['contigs'][contig]['genes'][gene]['annotation']
+					
+							next_merged_info = [src, genome, str(glen), str(nctg), str(n50), str(has_genes), ngenes, tt, cbg, \
+							cfg, contig, desc, str(ctl), ngenes_ct, cbct, cfct, gene, strand, str(st), str(nd), annot]
+							
+							merged_output.append(next_merged_info)
+					
+					else: #Case of genes were predicted but 0 CDS found
+						next_merged_info = [src, genome, str(glen), str(nctg), str(n50), str(has_genes), ngenes, tt, cbg, cfg,\
+						contig, desc, str(ctl), ngenes_ct, cbct, cfct, "NA", "NA", "NA", "NA", "NA"]
+				
+						merged_output.append(next_merged_info)	
+						
+				else:
+					next_merged_info = [src, genome, str(glen), str(nctg), str(n50), str(has_genes), ngenes, tt, cbg, cfg,\
+					contig, desc, str(ctl), ngenes_ct, cbct, cfct, "NA", "NA", "NA", "NA", "NA"]
+			
 					merged_output.append(next_merged_info)
 			
 		merged_output = ['\t'.join(l) for l in merged_output]
@@ -448,12 +550,14 @@ class db_extractor:
 			self.write_to_file(output_filename_genomes, genome_seqs)
 			
 		if do_nt:
-			nt_seqs = '\n'.join(nt_seqs) + "\n"
-			self.write_to_file(output_filename_nt, nt_seqs)
+			if len(nt_seqs) > 0:
+				nt_seqs = '\n'.join(nt_seqs) + "\n"
+				self.write_to_file(output_filename_nt, nt_seqs)
 		
 		if do_aa:
-			aa_seqs = '\n'.join(aa_seqs) + "\n"
-			self.write_to_file(output_filename_aa, aa_seqs)		
+			if len(aa_seqs) > 0:
+				aa_seqs = '\n'.join(aa_seqs) + "\n"
+				self.write_to_file(output_filename_aa, aa_seqs)		
 
 				
 
