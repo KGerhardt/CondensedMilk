@@ -17,7 +17,7 @@ from combine_databases import db_combiner
 #Predict genes for any genomes that don't have them
 from sweeten_database import database_sweetener
 
-#Retrieve genome, gene info and output to standard file formats
+#bake genome, gene info and output to standard file formats
 from extract_db_info import db_extractor
 
 #Functions for encoding genomes and producing/adding to a database
@@ -73,7 +73,7 @@ def genomes_to_db(genome_directory, output_database, num_threads = 1, in_memory 
 			sequence_order, sequences, contig_lengths, descriptions, noncalls_replaced_with_A_indices, genes_by_genome)
 			
 			#May be worth allowing gene prediction to be skipped here, done later.
-			#Retrieve new indices from the formatter
+			#bake new indices from the formatter
 			current_genome_index, current_contig_index, current_gene_index, current_genome_id, current_contig_id, current_gene_id = formatter.give_current_indices()			
 			#Update database indices with new values
 			db.set_indices(current_genome_index, current_contig_index, current_gene_index, current_genome_id, current_contig_id, current_gene_id)
@@ -103,7 +103,7 @@ def genomes_to_db(genome_directory, output_database, num_threads = 1, in_memory 
 			formatter.add_next_data(file_name, genome_length, translation_table, whole_genome_coding_bases, whole_genome_coding_dens, \
 			sequence_order, sequences, contig_lengths, descriptions, noncalls_replaced_with_A_indices, genes_by_genome)
 			
-			#Retrieve new indices from the formatter
+			#bake new indices from the formatter
 			current_genome_index, current_contig_index, current_gene_index, current_genome_id, current_contig_id, current_gene_id = formatter.give_current_indices()			
 			#Update database indices with new values
 			db.set_indices(current_genome_index, current_contig_index, current_gene_index, current_genome_id, current_contig_id, current_gene_id)
@@ -156,23 +156,23 @@ def sweeten_options():
 def simmer_options():
 	parser = argparse.ArgumentParser(description='Combine two Condensed Milk databases.')
 	parser.add_argument('--donor', dest='donor', default = None,
-						help='Path to a Condensed Milk database. The genomes in this database will be added to the database specified nby --recipient as new genomes in that database. The donor database will not be modified.')
+						help='Path to a Condensed Milk database. The genomes in this database will be added to the database specified by --recipient as new genomes in that database. The donor database will not be modified.')
 	parser.add_argument('--recipient', dest = 'recipient', default = None,
-						help='')
+						help='Path to a Condensed Milk database. The genomes from the donor database will be checked (only by name) and any new ones will be indexed and added to the recipient as new genomes.')
 
 	args = parser.parse_known_args()
 	return parser, vars(args[0])
 
 #Functions for loading, writing data from a database
 
-def retrieve_options():
-	parser = argparse.ArgumentParser(description='Retrieve data from a condensed milk database')
+def bake_options():
+	parser = argparse.ArgumentParser(description='retrieve data from a condensed milk database')
 	
 	#Basic info
 	parser.add_argument('-db', '--database', dest='database', default = None,
 						help='Path to an EXISTING database created by Condensed Milk.')
 						
-	parser.add_argument('-o', '--output_dir', dest='out', default = 'baked_goods',
+	parser.add_argument('-o', '--output_dir', dest='out', default = 'retrieved_goods',
 						help='An output directory in which genomes, genes, and metadata from this database will be placed.')
 			
 
@@ -189,16 +189,16 @@ def retrieve_options():
 						
 	#Extract one or several kinds of data for the genomes indicated. Default if all are false is to do everything.
 	parser.add_argument('--describe_JSON', dest = 'do_json', action = 'store_true',
-						help = 'Retrieve genome/MAG, contig, and gene metadata from this database and output as a single JSON-file.')
+						help = 'retrieve genome/MAG, contig, and gene metadata from this database and output as a single JSON-file.')
 						
 	parser.add_argument('--describe_text', dest = 'do_flat_files', action = 'store_true',
-						help = 'Retrieve metadata from this database and output as three tab-separated files, one for genome/MAG level data, one for contig level data, and one for gene level data.')
+						help = 'retrieve metadata from this database and output as three tab-separated files, one for genome/MAG level data, one for contig level data, and one for gene level data.')
 						
 	parser.add_argument('--describe_text_single', dest = 'do_single_flat', action = 'store_true',
-						help = 'Retrieve genome/MAG, contig, and gene metadata from this database and output as one tab-separated file with as much redundancy as needed to make this happen.')
+						help = 'retrieve genome/MAG, contig, and gene metadata from this database and output as one tab-separated file with as much redundancy as needed to make this happen.')
 						
 	parser.add_argument('--genome_to_fasta', dest = 'genome_seqs', action = 'store_true',
-						help = 'Retrieve genome sequences and recreate the original genome sequence files used as inputs to this database.')		
+						help = 'retrieve genome sequences and recreate the original genome sequence files used as inputs to this database.')		
 						
 	parser.add_argument('--protein_nt', dest = 'protein_nt', action = 'store_true',
 						help = 'Output proteins for each genome into per-genome FASTA files of the nucleotide sequences for each protein')		
@@ -210,7 +210,7 @@ def retrieve_options():
 	args = parser.parse_known_args()
 	return parser, vars(args[0])
 
-def run_retrieve(database, outdir, compress = False, genome_list = None, genome_file = None, json_meta = True, text_meta = True, single_text_meta = True, genome_fasta = True, protein_nt = True, protein_aa = True):
+def run_bake(database, outdir, compress = False, genome_list = None, genome_file = None, json_meta = True, text_meta = True, single_text_meta = True, genome_fasta = True, protein_nt = True, protein_aa = True):
 	outdir = os.path.normpath(outdir)
 		
 	mn = db_extractor(dbpath = database, output_dir = outdir, compress = compress)
@@ -226,7 +226,7 @@ def run_retrieve(database, outdir, compress = False, genome_list = None, genome_
 	mn.close()
 
 def main():
-	ok_modules = ["condense", "sweeten", "simmer", "retrieve"]
+	ok_modules = ["condense", "sweeten", "simmer", "bake"]
 	if len(sys.argv) < 2:
 		writeout = '/'.join(ok_modules)
 		print("You need to supply an action to condensed milk. The action should be in the second position of the call, e.g.:")
@@ -300,6 +300,7 @@ def main():
 				if donor is None or recip is None:
 					print("Condensed Milk needs both a donor and a recipient database to combine!")
 					is_ok = False
+					parser.print_help()
 				if is_ok:
 					print("")
 					print("Adding the contents of", donor, "to", recip)
@@ -307,8 +308,8 @@ def main():
 					mn.run_combine()
 					print("Done!")
 			
-			if module == "retrieve":
-				parser, args = retrieve_options()
+			if module == "bake":
+				parser, args = bake_options()
 				
 				db = args['database']
 				out = args['out']
@@ -324,9 +325,10 @@ def main():
 						is_ok = False
 					
 					if is_ok:
-						run_retrieve(db, out, compress)
+						run_bake(db, out, compress)
 		
 		
+
 
 
 main()
